@@ -97,14 +97,15 @@ def main():
     is_done = st.checkbox("Is Done?")
     created_by = st.text_input("Created By", "")
     category = st.selectbox("Category", ["", "School", "Work", "Personal"])
-
+    created_at = datetime.now()
     if st.button("Submit Task"):
         task_data = {
             "name": task_name,
             "description": task_description,
             "is_done": is_done,
             "created_by": created_by,
-            "category": category
+            "category": category,
+            "created_at":created_at
         }
         save_task_to_db(conn, task_data)
 
