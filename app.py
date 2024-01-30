@@ -1,14 +1,19 @@
-pip install streamlit streamlit-pydantic
-
 import streamlit as st
 from streamlit_pydantic import st_form
-
+from pydantic import BaseModel
 import sqlite3
 from sqlite3 import Error
-from pydantic import BaseModel
+from datetime import datetime
 
-# SQLite Database setup
 DATABASE_FILE = "tasks.db"
+
+class TaskModel(BaseModel):
+    name: str
+    description: str = ""
+    is_done: bool = False
+    created_at: datetime = datetime.now()
+    created_by: str = ""
+    category: str = ""
 
 def create_connection():
     conn = None
@@ -16,7 +21,7 @@ def create_connection():
         conn = sqlite3.connect(DATABASE_FILE)
         return conn
     except Error as e:
-        print(e)
+        st.error(f"Error: {e}")
     return conn
 
 def create_table(conn):
@@ -25,7 +30,10 @@ def create_table(conn):
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         description TEXT,
-        is_done INTEGER DEFAULT 0
+        is_done INTEGER DEFAULT 0,
+        created_at DATETIME,
+        created_by TEXT,
+        category TEXT
     );
     """
     try:
@@ -33,24 +41,58 @@ def create_table(conn):
         cursor.execute(create_table_sql)
         conn.commit()
     except Error as e:
-        print(e)
+        st.error(f"Error: {e}")
 
-# Pydantic model for Task
-class TaskModel(BaseModel):
-    name: str
-    description: str = ""
-    is_done: bool = False
+def save_task_to_db(conn, task_data):
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO tasks (name, description, is_done, created_at, created_by, category) VALUES (?, ?, ?, ?, ?, ?)",
+            (task_data["name"], task_data["description"], task_data["is_done"], task_data["created_at"],
+             task_data["created_by"], task_data["category"]),
+        )
+        conn.commit()
+        st.success("Task saved successfully!")
+    except Error as e:
+        st.error(f"Error: {e}")
 
-# Streamlit app
+def list_tasks(conn):
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM tasks")
+        rows = cursor.fetchall()
+        for row in rows:
+            st.write(f"Task ID: {row[0]}, Name: {row[1]}, Description: {row[2]}, Is Done: {row[3]}")
+    except Error as e:
+        st.error(f"Error: {e}")
+
+def update_task_status(conn, task_id, is_done):
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE tasks SET is_done = ? WHERE id = ?", (is_done, task_id))
+        conn.commit()
+        st.success("Task status updated successfully!")
+    except Error as e:
+        st.error(f"Error: {e}")
+
+def delete_task(conn, task_id):
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        conn.commit()
+        st.success("Task deleted successfully!")
+    except Error as e:
+        st.error(f"Error: {e}")
+
 def main():
+    st.title("Task Management App")
+
     conn = create_connection()
     if conn is not None:
         create_table(conn)
 
-    st.title("Task Management App")
-
     # Create Task Form
-    task_form = st_form(key="task_form", form=TaskModel)
+    task_form = st_form(TaskModel)
 
     if task_form:
         # Save Task to SQLite3
@@ -59,47 +101,18 @@ def main():
 
     # List Tasks
     st.header("Task List")
-    tasks = get_tasks_from_db(conn)
-
-    for task in tasks:
-        st.checkbox(task["name"], value=task["is_done"], key=task["id"])
+    list_tasks(conn)
 
     # Update Task status
     if st.button("Update Task Status"):
-        update_task_status(conn, tasks)
+        task_id = st.number_input("Enter Task ID to update status", min_value=1)
+        is_done = st.checkbox("Mark as Done")
+        update_task_status(conn, task_id, is_done)
 
-def save_task_to_db(conn, task_data):
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO tasks (name, description, is_done) VALUES (?, ?, ?)",
-            (task_data["name"], task_data["description"], task_data["is_done"]),
-        )
-        conn.commit()
-    except Error as e:
-        print(e)
-
-def get_tasks_from_db(conn):
-    tasks = []
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM tasks")
-        rows = cursor.fetchall()
-        for row in rows:
-            task = {"id": row[0], "name": row[1], "description": row[2], "is_done": row[3]}
-            tasks.append(task)
-    except Error as e:
-        print(e)
-    return tasks
-
-def update_task_status(conn, tasks):
-    try:
-        cursor = conn.cursor()
-        for task in tasks:
-            cursor.execute("UPDATE tasks SET is_done = ? WHERE id = ?", (task["is_done"], task["id"]))
-        conn.commit()
-    except Error as e:
-        print(e)
+    # Bonus: Delete Task
+    if st.button("Delete Task"):
+        task_id = st.number_input("Enter Task ID to delete", min_value=1)
+        delete_task(conn, task_id)
 
 if __name__ == "__main__":
     main()
