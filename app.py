@@ -1,3 +1,5 @@
+pip install streamlit streamlit-pydantic
+
 import streamlit as st
 from streamlit_pydantic import st_form
 
