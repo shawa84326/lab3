@@ -1,87 +1,103 @@
-import sqlite3
-import psycopg2
-import os
-
 import streamlit as st
+from streamlit_pydantic import st_form
+
+import sqlite3
+from sqlite3 import Error
 from pydantic import BaseModel
-import streamlit_pydantic as sp
 
-# Connect to our database
-DB_CONFIG = os.getenv("DB_TYPE")
-if DB_CONFIG == 'PG':
-    PG_USER = os.getenv("PG_USER")
-    con = psycopg2.connect(f"postgresql://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/todoapp?connect_timeout=10&application_name=todoapp")
-else:
-    con = sqlite3.connect("todoapp.sqlite", isolation_level=None)
-cur = con.cursor()
+# SQLite Database setup
+DATABASE_FILE = "tasks.db"
 
-# Create the table
-cur.execute(
-    """
+def create_connection():
+    conn = None
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        return conn
+    except Error as e:
+        print(e)
+    return conn
+
+def create_table(conn):
+    create_table_sql = """
     CREATE TABLE IF NOT EXISTS tasks (
-        id INTEGER PRIMARY KEY,
-        name TEXT,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
         description TEXT,
-        is_done BOOLEAN
-    )
+        is_done INTEGER DEFAULT 0
+    );
     """
-)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(create_table_sql)
+        conn.commit()
+    except Error as e:
+        print(e)
 
-# Define our Form
-class Task(BaseModel):
+# Pydantic model for Task
+class TaskModel(BaseModel):
     name: str
-    description: str
-    is_done: bool
+    description: str = ""
+    is_done: bool = False
 
-# This function will be called when the check mark is toggled, this is called a callback function
-def toggle_is_done(is_done, row):
-    cur.execute(
-        """
-        UPDATE tasks SET is_done = ? WHERE id = ?
-        """,
-        (is_done, row[0]),
-    )
-
+# Streamlit app
 def main():
-    st.title("Todo App")
+    conn = create_connection()
+    if conn is not None:
+        create_table(conn)
 
-    # Create a Form using the streamlit-pydantic package, just pass it the Task Class
-    data = sp.pydantic_form(key="task_form", model=Task)
-    if data:
-        cur.execute(
-            """
-            INSERT INTO tasks (name, description, is_done) VALUES (?, ?, ?)
-            """,
-            (data.name, data.description, data.is_done),
+    st.title("Task Management App")
+
+    # Create Task Form
+    task_form = st_form(key="task_form", form=TaskModel)
+
+    if task_form:
+        # Save Task to SQLite3
+        task_data = task_form.json()
+        save_task_to_db(conn, task_data)
+
+    # List Tasks
+    st.header("Task List")
+    tasks = get_tasks_from_db(conn)
+
+    for task in tasks:
+        st.checkbox(task["name"], value=task["is_done"], key=task["id"])
+
+    # Update Task status
+    if st.button("Update Task Status"):
+        update_task_status(conn, tasks)
+
+def save_task_to_db(conn, task_data):
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO tasks (name, description, is_done) VALUES (?, ?, ?)",
+            (task_data["name"], task_data["description"], task_data["is_done"]),
         )
+        conn.commit()
+    except Error as e:
+        print(e)
 
-    data = cur.execute(
-        """
-        SELECT * FROM tasks
-        """
-    ).fetchall()
+def get_tasks_from_db(conn):
+    tasks = []
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM tasks")
+        rows = cursor.fetchall()
+        for row in rows:
+            task = {"id": row[0], "name": row[1], "description": row[2], "is_done": row[3]}
+            tasks.append(task)
+    except Error as e:
+        print(e)
+    return tasks
 
-    # HINT: how to implement a Edit button?
-    # if st.query_params.get('id') == "123":
-    #     st.write("Hello 123")
-    #     st.markdown(
-    #         f'<a target="_self" href="/" style="display: inline-block; padding: 6px 10px; background-color: #4CAF50; color: white; text-align: center; text-decoration: none; font-size: 12px; border-radius: 4px;">Back</a>',
-    #         unsafe_allow_html=True,
-    #     )
-    #     return
+def update_task_status(conn, tasks):
+    try:
+        cursor = conn.cursor()
+        for task in tasks:
+            cursor.execute("UPDATE tasks SET is_done = ? WHERE id = ?", (task["is_done"], task["id"]))
+        conn.commit()
+    except Error as e:
+        print(e)
 
-    cols = st.columns(3)
-    cols[0].write("Done?")
-    cols[1].write("Name")
-    cols[2].write("Description")
-    for row in data:
-        cols = st.columns(3)
-        cols[0].checkbox('is_done', row[3], label_visibility='hidden', key=row[0], on_change=toggle_is_done, args=(not row[3], row))
-        cols[1].write(row[1])
-        cols[2].write(row[2])
-        # cols[2].markdown(
-        #     f'<a target="_self" href="/?id=123" style="display: inline-block; padding: 6px 10px; background-color: #4CAF50; color: white; text-align: center; text-decoration: none; font-size: 12px; border-radius: 4px;">Action Text on Button</a>',
-        #     unsafe_allow_html=True,
-        # )
-
-main()
+if __name__ == "__main__":
+    main()
