@@ -1,5 +1,4 @@
 import streamlit as st
-from streamlit_pydantic import st_form
 from pydantic import BaseModel
 import sqlite3
 from sqlite3 import Error
@@ -92,11 +91,21 @@ def main():
         create_table(conn)
 
     # Create Task Form
-    task_form = st_form(TaskModel)
+    st.header("Create New Task")
+    task_name = st.text_input("Task Name", "")
+    task_description = st.text_area("Task Description", "")
+    is_done = st.checkbox("Is Done?")
+    created_by = st.text_input("Created By", "")
+    category = st.selectbox("Category", ["", "School", "Work", "Personal"])
 
-    if task_form:
-        # Save Task to SQLite3
-        task_data = task_form.json()
+    if st.button("Submit Task"):
+        task_data = {
+            "name": task_name,
+            "description": task_description,
+            "is_done": is_done,
+            "created_by": created_by,
+            "category": category
+        }
         save_task_to_db(conn, task_data)
 
     # List Tasks
